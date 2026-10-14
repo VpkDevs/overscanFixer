@@ -1,0 +1,17 @@
+## Build and Output Folders
+bin/
+obj/
+bin_singlefile/
+publish/
+
+## Visual Studio / Rider / VS Code cache
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Logs and user data
+*.log

@@ -1,0 +1,17 @@
+<Window x:Class="OverscanFix.BorderMaskWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Overscan Border Mask"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual">
+    <Canvas x:Name="MaskCanvas">
+        <Rectangle x:Name="LeftBar" Fill="Black" Canvas.Left="0" Canvas.Top="0" />
+        <Rectangle x:Name="TopBar" Fill="Black" Canvas.Left="0" Canvas.Top="0" />
+        <Rectangle x:Name="RightBar" Fill="Black" Canvas.Top="0" />
+        <Rectangle x:Name="BottomBar" Fill="Black" Canvas.Left="0" />
+    </Canvas>
+</Window>

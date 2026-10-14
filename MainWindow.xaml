@@ -1,0 +1,281 @@
+<Window x:Class="OverscanFix.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OverscanFix - Display Overscan &amp; Safe Area Manager"
+        Height="780" Width="960"
+        MinHeight="720" MinWidth="880"
+        WindowStartupLocation="CenterScreen"
+        Background="#0F172A"
+        Foreground="#F8FAFC">
+
+    <Window.Resources>
+        <!-- Modern Color Palette -->
+        <SolidColorBrush x:Key="CardBackground" Color="#1E293B" />
+        <SolidColorBrush x:Key="CardBorder" Color="#334155" />
+        <SolidColorBrush x:Key="AccentPrimary" Color="#10B981" />
+        <SolidColorBrush x:Key="AccentHover" Color="#059669" />
+        <SolidColorBrush x:Key="AccentBlue" Color="#3B82F6" />
+        <SolidColorBrush x:Key="AccentBlueHover" Color="#2563EB" />
+        <SolidColorBrush x:Key="TextMuted" Color="#94A3B8" />
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#0F172A" />
+            <Setter Property="Foreground" Value="#F8FAFC" />
+            <Setter Property="BorderBrush" Value="#475569" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style TargetType="Slider">
+            <Setter Property="Foreground" Value="#10B981" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,2,0,2" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#E2E8F0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style x:Key="SideCardBorder" TargetType="Border">
+            <Setter Property="Background" Value="#1E293B" />
+            <Setter Property="BorderBrush" Value="#334155" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14" />
+            <Setter Property="Margin" Value="6" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- Header -->
+            <RowDefinition Height="Auto" />  <!-- Monitors & Options Toolbar -->
+            <RowDefinition Height="*" />     <!-- Central Controls & Visual Preview -->
+            <RowDefinition Height="Auto" />  <!-- Action Buttons & Presets -->
+            <RowDefinition Height="Auto" />  <!-- Status & Footer -->
+        </Grid.RowDefinitions>
+
+        <!-- 1. Header -->
+        <Border Grid.Row="0" Background="#1E293B" CornerRadius="10" Padding="16,12" Margin="0,0,0,14" BorderBrush="#334155" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🖥️" FontSize="26" Margin="0,0,12,0" VerticalAlignment="Center" />
+                    <StackPanel>
+                        <TextBlock Text="OverscanFix" FontSize="20" FontWeight="Bold" Foreground="#F8FAFC" />
+                        <TextBlock Text="Custom Screen Boundary &amp; Underscan Inset Utility" FontSize="12" Foreground="#94A3B8" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Status Badge -->
+                <Border Grid.Column="1" x:Name="StatusBadge" Background="#064E3B" CornerRadius="16" Padding="14,6" VerticalAlignment="Center" BorderBrush="#10B981" BorderThickness="1">
+                    <TextBlock x:Name="StatusText" Text="Status: Inactive (Full Screen)" FontSize="12" FontWeight="Bold" Foreground="#6EE7B7" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- 2. Monitor & Mode Selection -->
+        <Border Grid.Row="1" Background="#1E293B" CornerRadius="8" Padding="14,10" Margin="0,0,0,14" BorderBrush="#334155" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="280" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="Target Display:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,0" Foreground="#E2E8F0" />
+                <ComboBox Grid.Column="1" x:Name="MonitorSelector" VerticalAlignment="Center" SelectionChanged="MonitorSelector_SelectionChanged" Background="#0F172A" Foreground="#0F172A" Padding="6,4" />
+
+                <!-- Toggles -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <CheckBox x:Name="UniformLockCheck" Content="🔒 Link All Sides (Uniform)" Margin="0,0,18,0" Checked="UniformLockCheck_Changed" Unchecked="UniformLockCheck_Changed" />
+                    <CheckBox x:Name="WorkAreaCheck" Content="📐 Adjust Work Area" IsChecked="True" Margin="0,0,18,0" ToolTip="Constrains maximized windows (browsers, apps) within the safe boundaries." />
+                    <CheckBox x:Name="BlackBordersCheck" Content="⬛ Blackout Mask" Margin="0,0,0,0" ToolTip="Renders solid matte-black click-through bars outside the safe viewing zone." />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 3. Central Controls & Live Visual Preview -->
+        <Grid Grid.Row="2" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*" /> <!-- 4 Inset Sliders Cards -->
+                <ColumnDefinition Width="0.9*" /> <!-- Live Preview Canvas -->
+            </Grid.ColumnDefinitions>
+
+            <!-- 4 Edge Controls -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- TOP SIDE -->
+                    <Border Grid.Row="0" Style="{StaticResource SideCardBorder}">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,6">
+                                <TextBlock Text="⬆️ TOP INSET" FontWeight="Bold" Foreground="#38BDF8" FontSize="13" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <TextBox x:Name="TopPxText" Width="60" TextAlignment="Right" LostFocus="TopPxText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" px  (" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0" />
+                                    <TextBox x:Name="TopPctText" Width="50" TextAlignment="Right" LostFocus="TopPctText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" %)" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <Slider x:Name="TopSlider" Minimum="0" Maximum="200" ValueChanged="TopSlider_ValueChanged" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- LEFT SIDE -->
+                    <Border Grid.Row="1" Style="{StaticResource SideCardBorder}">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,6">
+                                <TextBlock Text="⬅️ LEFT INSET" FontWeight="Bold" Foreground="#38BDF8" FontSize="13" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <TextBox x:Name="LeftPxText" Width="60" TextAlignment="Right" LostFocus="LeftPxText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" px  (" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0" />
+                                    <TextBox x:Name="LeftPctText" Width="50" TextAlignment="Right" LostFocus="LeftPctText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" %)" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <Slider x:Name="LeftSlider" Minimum="0" Maximum="300" ValueChanged="LeftSlider_ValueChanged" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- RIGHT SIDE -->
+                    <Border Grid.Row="2" Style="{StaticResource SideCardBorder}">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,6">
+                                <TextBlock Text="➡️ RIGHT INSET" FontWeight="Bold" Foreground="#38BDF8" FontSize="13" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <TextBox x:Name="RightPxText" Width="60" TextAlignment="Right" LostFocus="RightPxText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" px  (" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0" />
+                                    <TextBox x:Name="RightPctText" Width="50" TextAlignment="Right" LostFocus="RightPctText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" %)" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <Slider x:Name="RightSlider" Minimum="0" Maximum="300" ValueChanged="RightSlider_ValueChanged" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- BOTTOM SIDE -->
+                    <Border Grid.Row="3" Style="{StaticResource SideCardBorder}">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,6">
+                                <TextBlock Text="⬇️ BOTTOM INSET" FontWeight="Bold" Foreground="#38BDF8" FontSize="13" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <TextBox x:Name="BottomPxText" Width="60" TextAlignment="Right" LostFocus="BottomPxText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" px  (" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0" />
+                                    <TextBox x:Name="BottomPctText" Width="50" TextAlignment="Right" LostFocus="BottomPctText_LostFocus" KeyDown="Input_KeyDown" />
+                                    <TextBlock Text=" %)" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <Slider x:Name="BottomSlider" Minimum="0" Maximum="200" ValueChanged="BottomSlider_ValueChanged" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </ScrollViewer>
+
+            <!-- Visual Preview Canvas -->
+            <Border Grid.Column="1" Background="#1E293B" CornerRadius="8" Margin="8,6,0,6" BorderBrush="#334155" BorderThickness="1" Padding="14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="LIVE SCREEN DIAGRAM" FontWeight="Bold" FontSize="12" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,0,0,8" />
+
+                    <!-- Visual Screen Frame -->
+                    <Border Grid.Row="1" x:Name="PreviewOuterBorder" Background="#090D16" BorderBrush="#475569" BorderThickness="2" CornerRadius="6" VerticalAlignment="Center" HorizontalAlignment="Center" Height="220" Width="360">
+                        <Grid>
+                            <!-- Safe Area Box -->
+                            <Border x:Name="PreviewInnerBox" Background="#1510B981" BorderBrush="#10B981" BorderThickness="2" CornerRadius="3" Margin="20,15,20,15">
+                                <Grid>
+                                    <TextBlock x:Name="PreviewResolutionText" Text="1840 x 1030&#x0a;(Safe Area)" FontSize="11" FontWeight="Bold" Foreground="#6EE7B7" TextAlignment="Center" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Inset Indicator Badges -->
+                            <TextBlock x:Name="PreviewTopBadge" Text="25 px" FontSize="9" Foreground="#38BDF8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,3,0,0" />
+                            <TextBlock x:Name="PreviewBottomBadge" Text="25 px" FontSize="9" Foreground="#38BDF8" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3" />
+                            <TextBlock x:Name="PreviewLeftBadge" Text="40 px" FontSize="9" Foreground="#38BDF8" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="3,0,0,0" />
+                            <TextBlock x:Name="PreviewRightBadge" Text="40 px" FontSize="9" Foreground="#38BDF8" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,3,0" />
+                        </Grid>
+                    </Border>
+
+                    <StackPanel Grid.Row="2" HorizontalAlignment="Center" Margin="0,8,0,0">
+                        <TextBlock x:Name="PreviewMonitorDetails" Text="Display: 1920 x 1080 (16:9)" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" />
+                        <TextBlock Text="Green box = designated safe area visible on your screen." FontSize="10" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- 4. Action Buttons & Quick Presets -->
+        <Border Grid.Row="3" Background="#1E293B" CornerRadius="8" Padding="14,12" Margin="0,0,0,10" BorderBrush="#334155" BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Quick Presets -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,12">
+                    <TextBlock Text="Quick Presets:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,10,0" />
+                    <Button Content="Reset (0%)" Click="PresetReset_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                    <Button Content="Mild TV (2.5%)" Click="PresetMild_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                    <Button Content="Standard TV (5%)" Click="PresetStandard_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                    <Button Content="Aggressive (7.5%)" Click="PresetAggressive_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                </StackPanel>
+
+                <!-- Primary Action Buttons -->
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" Content="✨ Apply Overscan Fix" Click="ApplyButton_Click" Background="#10B981" Foreground="White" FontWeight="Bold" FontSize="13" Padding="12,8" Margin="4,0" BorderThickness="0" Cursor="Hand" />
+                    <Button Grid.Column="1" Content="🔄 Reset to Fullscreen" Click="ResetButton_Click" Background="#475569" Foreground="White" FontWeight="SemiBold" FontSize="13" Padding="12,8" Margin="4,0" BorderThickness="0" Cursor="Hand" />
+                    <Button Grid.Column="2" Content="📐 Calibration Ruler" Click="CalibrationButton_Click" Background="#3B82F6" Foreground="White" FontWeight="SemiBold" FontSize="13" Padding="12,8" Margin="4,0" BorderThickness="0" Cursor="Hand" />
+                    <Button Grid.Column="3" Content="🪟 Fit All Windows" Click="FitWindowsButton_Click" Background="#6366F1" Foreground="White" FontWeight="SemiBold" FontSize="13" Padding="12,8" Margin="4,0" BorderThickness="0" Cursor="Hand" ToolTip="Pulls all currently open application windows inside the safe zone." />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- 5. Footer & Settings -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <CheckBox x:Name="StartWithWindowsCheck" Content="Start with Windows" Checked="StartWithWindowsCheck_Changed" Unchecked="StartWithWindowsCheck_Changed" Margin="0,0,18,0" />
+                <CheckBox x:Name="MinimizeToTrayCheck" Content="Minimize to System Tray" IsChecked="True" Checked="MinimizeToTrayCheck_Changed" Unchecked="MinimizeToTrayCheck_Changed" Margin="0,0,18,0" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="Hotkey: " Foreground="#64748B" FontSize="11" VerticalAlignment="Center" />
+                <Border Background="#1E293B" CornerRadius="4" Padding="6,2" BorderBrush="#334155" BorderThickness="1">
+                    <TextBlock Text="Ctrl + Alt + O" FontSize="11" FontWeight="Bold" Foreground="#38BDF8" />
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
