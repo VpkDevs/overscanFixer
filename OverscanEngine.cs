@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
-using Microsoft.Win32;
 
 namespace OverscanFix;
 
@@ -24,7 +24,7 @@ public class MonitorItem
 
 public class OverscanEngine : IDisposable
 {
-    private readonly Dictionary<string, NativeMethods.RECT> _savedWorkAreas = new();
+    private readonly Dictionary<string, NativeMethods.RECT> _savedWorkAreas = new(StringComparer.OrdinalIgnoreCase);
     private BorderMaskWindow? _borderWindow;
     private CalibrationWindow? _calibrationWindow;
     private bool _isApplied;
@@ -74,9 +74,10 @@ public class OverscanEngine : IDisposable
         int safeRight = ActiveMonitor.X + ActiveMonitor.Width - rightPx;
         int safeBottom = ActiveMonitor.Y + ActiveMonitor.Height - bottomPx;
 
-        // Ensure minimum safe dimensions
+        // Ensure minimum safe dimensions (at least 200x200 remaining)
         if (safeRight <= safeLeft + 200 || safeBottom <= safeTop + 200)
         {
+            Logger.Warn($"Requested margins too large for {ActiveMonitor.Width}x{ActiveMonitor.Height}: Left={leftPx}, Right={rightPx}, Top={topPx}, Bottom={bottomPx}");
             return;
         }
 
@@ -103,6 +104,37 @@ public class OverscanEngine : IDisposable
         _isApplied = true;
     }
 
+    /// <summary>
+    /// Applies overscan with startup resilience retries.
+    /// During Windows logon, DWM and shell startup can clobber or reset the work area multiple times.
+    /// This method enforces the target work area across 3 retry intervals (immediate, +1.5s, +4s).
+    /// </summary>
+    public async Task ApplyOverscanWithResilienceAsync(int leftPx, int topPx, int rightPx, int bottomPx, bool applyWorkArea, bool showBorders)
+    {
+        ApplyOverscan(leftPx, topPx, rightPx, bottomPx, applyWorkArea, showBorders);
+
+        if (applyWorkArea && ActiveMonitor != null)
+        {
+            int safeLeft = ActiveMonitor.X + leftPx;
+            int safeTop = ActiveMonitor.Y + topPx;
+            int safeRight = ActiveMonitor.X + ActiveMonitor.Width - rightPx;
+            int safeBottom = ActiveMonitor.Y + ActiveMonitor.Height - bottomPx;
+            var safeRect = new NativeMethods.RECT(safeLeft, safeTop, safeRight, safeBottom);
+
+            int[] retryDelaysMs = { 1500, 2500, 4000 };
+            foreach (int delay in retryDelaysMs)
+            {
+                await Task.Delay(delay);
+                var current = NativeMethods.GetCurrentWorkArea();
+                if (current.Left != safeLeft || current.Top != safeTop || current.Right != safeRight || current.Bottom != safeBottom)
+                {
+                    Logger.Info($"Work area drift detected during boot sequence (Expected: {safeRect}, Actual: {current}). Re-applying...");
+                    NativeMethods.SetWorkArea(safeRect);
+                }
+            }
+        }
+    }
+
     public void RestoreDefaultWorkArea()
     {
         if (ActiveMonitor != null && _savedWorkAreas.TryGetValue(ActiveMonitor.DeviceName, out var orig))
@@ -111,7 +143,6 @@ public class OverscanEngine : IDisposable
         }
         else
         {
-            // Fallback to screen bounds
             if (ActiveMonitor != null)
             {
                 var r = new NativeMethods.RECT(ActiveMonitor.X, ActiveMonitor.Y, ActiveMonitor.X + ActiveMonitor.Width, ActiveMonitor.Y + ActiveMonitor.Height - 48);
@@ -171,8 +202,6 @@ public class OverscanEngine : IDisposable
         int safeW = safeRight - safeLeft;
         int safeH = safeBottom - safeTop;
 
-        int currentProcessId = Environment.ProcessId;
-
         NativeMethods.EnumWindows((hWnd, lParam) =>
         {
             if (!NativeMethods.IsWindowVisible(hWnd) || NativeMethods.IsIconic(hWnd))
@@ -191,7 +220,6 @@ public class OverscanEngine : IDisposable
 
             if (NativeMethods.GetWindowRect(hWnd, out var r))
             {
-                // If window spills outside the safe zone on the active monitor
                 bool needsAdjust = (r.Left < safeLeft || r.Top < safeTop || r.Right > safeRight || r.Bottom > safeBottom);
                 if (needsAdjust && r.Width > 150 && r.Height > 100)
                 {
@@ -209,31 +237,6 @@ public class OverscanEngine : IDisposable
             }
             return true;
         }, IntPtr.Zero);
-    }
-
-    public void SetStartupRun(bool enable)
-    {
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
-            if (key == null) return;
-
-            string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? string.Empty;
-            if (string.IsNullOrEmpty(exePath)) return;
-
-            if (enable)
-            {
-                key.SetValue("OverscanFix", $"\"{exePath}\" --minimized");
-            }
-            else
-            {
-                if (key.GetValue("OverscanFix") != null)
-                {
-                    key.DeleteValue("OverscanFix");
-                }
-            }
-        }
-        catch { }
     }
 
     public void Dispose()

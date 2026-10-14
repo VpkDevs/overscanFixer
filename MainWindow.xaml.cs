@@ -1,8 +1,10 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -22,6 +24,7 @@ public partial class MainWindow : Window
     private bool _isUpdating;
     private const int HOTKEY_ID = 9001;
     private HwndSource? _hwndSource;
+    private string _latestReleaseUrl = "https://github.com/VpkDevs/overscanFixer/releases";
 
     public MainWindow()
     {
@@ -32,23 +35,87 @@ public partial class MainWindow : Window
         Closing += MainWindow_Closing;
     }
 
-    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        VersionBadgeText.Text = $"v{UpdateChecker.GetCurrentVersionString()}";
+
         InitializeSystemTray();
         RegisterGlobalHotkey();
         LoadMonitors();
-        LoadProfileIntoUI(_settings.CurrentProfile);
+        LoadProfilesDropdown();
 
-        // Check if started minimized
+        // Check if started minimized (boot or CLI flag)
         if (_settings.StartMinimized || Environment.GetCommandLineArgs().Contains("--minimized"))
         {
             Hide();
             if (_settings.CurrentProfile.EnableWorkAreaAdjustment || _settings.CurrentProfile.EnableBlackBorders)
             {
-                ApplyOverscan();
+                // Use resilient startup retry logic on boot to fight Windows logon work area resets
+                await _engine.ApplyOverscanWithResilienceAsync(
+                    _settings.CurrentProfile.LeftPixels,
+                    _settings.CurrentProfile.TopPixels,
+                    _settings.CurrentProfile.RightPixels,
+                    _settings.CurrentProfile.BottomPixels,
+                    _settings.CurrentProfile.EnableWorkAreaAdjustment,
+                    _settings.CurrentProfile.EnableBlackBorders);
+                UpdateTrayStatusText(isActive: true);
             }
         }
+
+        // Auto-updater check stub (runs asynchronously in background without blocking)
+        if (_settings.CheckForUpdatesOnStartup)
+        {
+            _ = CheckForUpdatesInBackgroundAsync();
+        }
     }
+
+    #region Auto-Updater
+
+    private async Task CheckForUpdatesInBackgroundAsync()
+    {
+        try
+        {
+            var updateResult = await UpdateChecker.CheckForUpdatesAsync();
+            if (updateResult != null && updateResult.IsUpdateAvailable)
+            {
+                _latestReleaseUrl = updateResult.HtmlUrl;
+                Dispatcher.Invoke(() =>
+                {
+                    UpdateNotificationText.Text = $"v{updateResult.LatestVersion} is available! (Current: v{updateResult.CurrentVersion})";
+                    UpdateNotificationBar.Visibility = Visibility.Visible;
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Background update check error: {ex.Message}");
+        }
+    }
+
+    private void UpdateReleaseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _latestReleaseUrl,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Could not open release URL", ex);
+        }
+    }
+
+    private void DismissUpdateBanner_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateNotificationBar.Visibility = Visibility.Collapsed;
+    }
+
+    #endregion
+
+    #region System Tray & Context Menu
 
     private void InitializeSystemTray()
     {
@@ -59,11 +126,59 @@ public partial class MainWindow : Window
             Text = "OverscanFix - Display Overscan Manager"
         };
 
+        RebuildTrayContextMenu();
+
+        _trayIcon.DoubleClick += (s, e) => ShowAndRestore();
+    }
+
+    private void RebuildTrayContextMenu()
+    {
+        if (_trayIcon == null) return;
+
         var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add("Open Controls", null, (s, e) => ShowAndRestore());
-        menu.Items.Add("Toggle Overscan (Ctrl+Alt+O)", null, (s, e) => ToggleOverscan());
+
+        // 1. Open Window
+        var openItem = new WinForms.ToolStripMenuItem("Open Controls");
+        openItem.Font = new System.Drawing.Font(openItem.Font, System.Drawing.FontStyle.Bold);
+        openItem.Click += (s, e) => ShowAndRestore();
+        menu.Items.Add(openItem);
+
+        menu.Items.Add(new WinForms.ToolStripSeparator());
+
+        // 2. Toggle Status Item
+        string toggleText = _engine.IsApplied ? "Disable Overscan (Reset)" : "Enable Overscan";
+        var toggleItem = new WinForms.ToolStripMenuItem(toggleText, null, (s, e) => ToggleOverscan());
+        menu.Items.Add(toggleItem);
+
+        // 3. Profiles Submenu
+        var profilesSubmenu = new WinForms.ToolStripMenuItem("Switch Profile");
+        foreach (var p in _settings.SavedProfiles)
+        {
+            var pItem = new WinForms.ToolStripMenuItem(p.Name, null, (s, e) =>
+            {
+                ApplyNamedProfile(p);
+            });
+            if (p.Name.Equals(_settings.ActiveProfileName, StringComparison.OrdinalIgnoreCase))
+            {
+                pItem.Checked = true;
+            }
+            profilesSubmenu.DropDownItems.Add(pItem);
+        }
+        menu.Items.Add(profilesSubmenu);
+
+        menu.Items.Add(new WinForms.ToolStripSeparator());
+
+        // 4. Calibration & Reset Quick Actions
+        menu.Items.Add("Run Calibration Overlay", null, (s, e) =>
+        {
+            ShowAndRestore();
+            CalibrationButton_Click(this, new RoutedEventArgs());
+        });
         menu.Items.Add("Reset to Fullscreen", null, (s, e) => ResetOverscan());
-        menu.Items.Add("-");
+
+        menu.Items.Add(new WinForms.ToolStripSeparator());
+
+        // 5. Exit
         menu.Items.Add("Exit", null, (s, e) =>
         {
             _settings.MinimizeToTrayOnClose = false;
@@ -71,7 +186,27 @@ public partial class MainWindow : Window
         });
 
         _trayIcon.ContextMenuStrip = menu;
-        _trayIcon.DoubleClick += (s, e) => ShowAndRestore();
+    }
+
+    private void UpdateTrayStatusText(bool isActive)
+    {
+        if (_trayIcon == null) return;
+
+        string profName = _settings.ActiveProfileName;
+        int l = _settings.CurrentProfile.LeftPixels;
+        int t = _settings.CurrentProfile.TopPixels;
+        int r = _settings.CurrentProfile.RightPixels;
+        int b = _settings.CurrentProfile.BottomPixels;
+
+        string tooltip = isActive
+            ? $"OverscanFix: [{profName}] L{l} T{t} R{r} B{b}"
+            : "OverscanFix: Inactive (Full Screen)";
+
+        // Tooltip max length is 63 chars in WinForms NotifyIcon
+        if (tooltip.Length > 63) tooltip = tooltip.Substring(0, 60) + "...";
+        _trayIcon.Text = tooltip;
+
+        RebuildTrayContextMenu();
     }
 
     private void ShowAndRestore()
@@ -80,6 +215,10 @@ public partial class MainWindow : Window
         WindowState = WindowState.Normal;
         Activate();
     }
+
+    #endregion
+
+    #region Global Hotkey
 
     private void RegisterGlobalHotkey()
     {
@@ -102,6 +241,10 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
+    #endregion
+
+    #region Monitors & Profiles Management
+
     private void LoadMonitors()
     {
         var monitors = _engine.GetAvailableMonitors();
@@ -109,15 +252,93 @@ public partial class MainWindow : Window
 
         if (monitors.Count > 0)
         {
-            // Select saved monitor or primary
             int selectedIndex = 0;
             if (!string.IsNullOrEmpty(_settings.CurrentProfile.TargetMonitorDevice))
             {
-                int idx = monitors.FindIndex(m => m.DeviceName == _settings.CurrentProfile.TargetMonitorDevice);
+                int idx = monitors.FindIndex(m => m.DeviceName.Equals(_settings.CurrentProfile.TargetMonitorDevice, StringComparison.OrdinalIgnoreCase));
                 if (idx >= 0) selectedIndex = idx;
             }
             MonitorSelector.SelectedIndex = selectedIndex;
         }
+    }
+
+    private void LoadProfilesDropdown()
+    {
+        ProfileSelector.ItemsSource = null;
+        ProfileSelector.ItemsSource = _settings.SavedProfiles.Select(p => p.Name).ToList();
+
+        int activeIdx = _settings.SavedProfiles.FindIndex(p => p.Name.Equals(_settings.ActiveProfileName, StringComparison.OrdinalIgnoreCase));
+        ProfileSelector.SelectedIndex = activeIdx >= 0 ? activeIdx : 0;
+    }
+
+    private void MonitorSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (MonitorSelector.SelectedItem is MonitorItem monitor)
+        {
+            _engine.SelectMonitor(monitor);
+
+            // Update max slider bounds
+            LeftSlider.Maximum = Math.Max(100, monitor.Width / 3);
+            RightSlider.Maximum = Math.Max(100, monitor.Width / 3);
+            TopSlider.Maximum = Math.Max(80, monitor.Height / 3);
+            BottomSlider.Maximum = Math.Max(80, monitor.Height / 3);
+
+            PreviewMonitorDetails.Text = $"Display: {monitor.Width} x {monitor.Height} ({(double)monitor.Width / monitor.Height:F2}:1)";
+
+            // Load per-monitor profile if stored
+            var monitorProf = _settings.GetProfileForMonitor(monitor.DeviceName);
+            LoadProfileIntoUI(monitorProf);
+            UpdateDiagramPreview();
+        }
+    }
+
+    private void ProfileSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdating) return;
+        if (ProfileSelector.SelectedItem is string profName)
+        {
+            var prof = _settings.SavedProfiles.FirstOrDefault(p => p.Name.Equals(profName, StringComparison.OrdinalIgnoreCase));
+            if (prof != null)
+            {
+                ApplyNamedProfile(prof);
+            }
+        }
+    }
+
+    private void ApplyNamedProfile(OverscanProfile p)
+    {
+        _settings.ActiveProfileName = p.Name;
+        LoadProfileIntoUI(p);
+        ApplyOverscan();
+    }
+
+    private void SaveCustomProfileButton_Click(object sender, RoutedEventArgs e)
+    {
+        string currentMonitor = _engine.ActiveMonitor?.DeviceName ?? "Display";
+        string defaultName = $"Custom {_settings.SavedProfiles.Count + 1}";
+
+        // Simple prompt or save
+        var newProfile = new OverscanProfile
+        {
+            Name = defaultName,
+            TargetMonitorDevice = currentMonitor,
+            LeftPixels = (int)LeftSlider.Value,
+            TopPixels = (int)TopSlider.Value,
+            RightPixels = (int)RightSlider.Value,
+            BottomPixels = (int)BottomSlider.Value,
+            UniformLinked = UniformLockCheck.IsChecked == true,
+            EnableWorkAreaAdjustment = WorkAreaCheck.IsChecked == true,
+            EnableBlackBorders = BlackBordersCheck.IsChecked == true
+        };
+
+        _settings.SavedProfiles.Add(newProfile);
+        _settings.ActiveProfileName = newProfile.Name;
+        _settings.Save();
+
+        LoadProfilesDropdown();
+        RebuildTrayContextMenu();
+
+        MessageBox.Show($"Profile '{newProfile.Name}' saved successfully!", "OverscanFix", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void LoadProfileIntoUI(OverscanProfile p)
@@ -130,6 +351,7 @@ public partial class MainWindow : Window
             BlackBordersCheck.IsChecked = p.EnableBlackBorders;
             StartWithWindowsCheck.IsChecked = _settings.StartWithWindows;
             MinimizeToTrayCheck.IsChecked = _settings.MinimizeToTrayOnClose;
+            CheckUpdatesCheck.IsChecked = _settings.CheckForUpdatesOnStartup;
 
             SetLeftPixels(p.LeftPixels);
             SetTopPixels(p.TopPixels);
@@ -146,6 +368,7 @@ public partial class MainWindow : Window
     private void SaveUIToProfile()
     {
         var p = _settings.CurrentProfile;
+        p.Name = _settings.ActiveProfileName;
         p.LeftPixels = (int)LeftSlider.Value;
         p.TopPixels = (int)TopSlider.Value;
         p.RightPixels = (int)RightSlider.Value;
@@ -157,27 +380,30 @@ public partial class MainWindow : Window
         if (_engine.ActiveMonitor != null)
         {
             p.TargetMonitorDevice = _engine.ActiveMonitor.DeviceName;
+            if (AutoSaveMonitorCheck.IsChecked == true)
+            {
+                _settings.SetProfileForMonitor(_engine.ActiveMonitor.DeviceName, p.Clone(p.Name));
+            }
+        }
+
+        // Update corresponding profile in saved list
+        var existing = _settings.SavedProfiles.FirstOrDefault(s => s.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            existing.LeftPixels = p.LeftPixels;
+            existing.TopPixels = p.TopPixels;
+            existing.RightPixels = p.RightPixels;
+            existing.BottomPixels = p.BottomPixels;
+            existing.UniformLinked = p.UniformLinked;
+            existing.EnableWorkAreaAdjustment = p.EnableWorkAreaAdjustment;
+            existing.EnableBlackBorders = p.EnableBlackBorders;
         }
 
         _settings.Save();
+        RebuildTrayContextMenu();
     }
 
-    private void MonitorSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (MonitorSelector.SelectedItem is MonitorItem monitor)
-        {
-            _engine.SelectMonitor(monitor);
-
-            // Update max slider bounds
-            LeftSlider.Maximum = Math.Max(100, monitor.Width / 3);
-            RightSlider.Maximum = Math.Max(100, monitor.Width / 3);
-            TopSlider.Maximum = Math.Max(80, monitor.Height / 3);
-            BottomSlider.Maximum = Math.Max(80, monitor.Height / 3);
-
-            PreviewMonitorDetails.Text = $"Display: {monitor.Width} x {monitor.Height} ({(double)monitor.Width / monitor.Height:F2}:1)";
-            UpdateDiagramPreview();
-        }
-    }
+    #endregion
 
     #region Two-Way Sync (Pixels <-> Percentage)
 
@@ -297,11 +523,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ApplyUniformScaleFromPixels(int px, bool isHorizontal)
+    private void ApplyUniformScaleFromPixels(int basePx, bool isHorizontal)
     {
         int monW = _engine.ActiveMonitor?.Width ?? 1920;
         int monH = _engine.ActiveMonitor?.Height ?? 1080;
-        double pct = isHorizontal ? (px * 100.0 / monW) : (px * 100.0 / monH);
+
+        double pct = isHorizontal ? (basePx * 100.0 / monW) : (basePx * 100.0 / monH);
 
         int pxX = (int)Math.Round(pct * monW / 100.0);
         int pxY = (int)Math.Round(pct * monH / 100.0);
@@ -312,74 +539,119 @@ public partial class MainWindow : Window
         SetBottomPixels(pxY);
     }
 
-    private void LeftPxText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (int.TryParse(LeftPxText.Text, out int v)) LeftSlider.Value = v;
-    }
-
-    private void TopPxText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (int.TryParse(TopPxText.Text, out int v)) TopSlider.Value = v;
-    }
-
-    private void RightPxText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (int.TryParse(RightPxText.Text, out int v)) RightSlider.Value = v;
-    }
-
-    private void BottomPxText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (int.TryParse(BottomPxText.Text, out int v)) BottomSlider.Value = v;
-    }
-
-    private void LeftPctText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        int monW = _engine.ActiveMonitor?.Width ?? 1920;
-        if (double.TryParse(LeftPctText.Text, out double pct)) LeftSlider.Value = (pct * monW) / 100.0;
-    }
-
-    private void TopPctText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        int monH = _engine.ActiveMonitor?.Height ?? 1080;
-        if (double.TryParse(TopPctText.Text, out double pct)) TopSlider.Value = (pct * monH) / 100.0;
-    }
-
-    private void RightPctText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        int monW = _engine.ActiveMonitor?.Width ?? 1920;
-        if (double.TryParse(RightPctText.Text, out double pct)) RightSlider.Value = (pct * monW) / 100.0;
-    }
-
-    private void BottomPctText_LostFocus(object sender, RoutedEventArgs e)
-    {
-        int monH = _engine.ActiveMonitor?.Height ?? 1080;
-        if (double.TryParse(BottomPctText.Text, out double pct)) BottomSlider.Value = (pct * monH) / 100.0;
-    }
-
-    private void Input_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter && sender is TextBox tb)
-        {
-            var binding = tb.GetBindingExpression(TextBox.TextProperty);
-            binding?.UpdateSource();
-            Keyboard.ClearFocus();
-        }
-    }
-
     private void UniformLockCheck_Changed(object sender, RoutedEventArgs e)
     {
         if (UniformLockCheck.IsChecked == true)
         {
-            ApplyUniformScaleFromPixels((int)LeftSlider.Value, isHorizontal: true);
+            int currentLeft = (int)LeftSlider.Value;
+            _isUpdating = true;
+            try
+            {
+                ApplyUniformScaleFromPixels(currentLeft, isHorizontal: true);
+            }
+            finally
+            {
+                _isUpdating = false;
+                UpdateDiagramPreview();
+            }
+        }
+    }
+
+    private void LeftPxText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(LeftPxText.Text, out int val))
+        {
+            val = Math.Clamp(val, 0, (int)LeftSlider.Maximum);
+            LeftSlider.Value = val;
+        }
+    }
+
+    private void TopPxText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(TopPxText.Text, out int val))
+        {
+            val = Math.Clamp(val, 0, (int)TopSlider.Maximum);
+            TopSlider.Value = val;
+        }
+    }
+
+    private void RightPxText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(RightPxText.Text, out int val))
+        {
+            val = Math.Clamp(val, 0, (int)RightSlider.Maximum);
+            RightSlider.Value = val;
+        }
+    }
+
+    private void BottomPxText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(BottomPxText.Text, out int val))
+        {
+            val = Math.Clamp(val, 0, (int)BottomSlider.Maximum);
+            BottomSlider.Value = val;
+        }
+    }
+
+    private void LeftPctText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (double.TryParse(LeftPctText.Text, out double pct))
+        {
+            int monW = _engine.ActiveMonitor?.Width ?? 1920;
+            int px = (int)Math.Round(pct * monW / 100.0);
+            LeftSlider.Value = Math.Clamp(px, 0, (int)LeftSlider.Maximum);
+        }
+    }
+
+    private void TopPctText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (double.TryParse(TopPctText.Text, out double pct))
+        {
+            int monH = _engine.ActiveMonitor?.Height ?? 1080;
+            int px = (int)Math.Round(pct * monH / 100.0);
+            TopSlider.Value = Math.Clamp(px, 0, (int)TopSlider.Maximum);
+        }
+    }
+
+    private void RightPctText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (double.TryParse(RightPctText.Text, out double pct))
+        {
+            int monW = _engine.ActiveMonitor?.Width ?? 1920;
+            int px = (int)Math.Round(pct * monW / 100.0);
+            RightSlider.Value = Math.Clamp(px, 0, (int)RightSlider.Maximum);
+        }
+    }
+
+    private void BottomPctText_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (double.TryParse(BottomPctText.Text, out double pct))
+        {
+            int monH = _engine.ActiveMonitor?.Height ?? 1080;
+            int px = (int)Math.Round(pct * monH / 100.0);
+            BottomSlider.Value = Math.Clamp(px, 0, (int)BottomSlider.Maximum);
+        }
+    }
+
+    private void Input_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            if (sender is System.Windows.Controls.TextBox tb)
+            {
+                tb.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+            }
         }
     }
 
     #endregion
 
-    #region Visual Diagram Preview
+    #region Visual Diagram Update
 
     private void UpdateDiagramPreview()
     {
+        if (PreviewOuterBorder == null || PreviewInnerBox == null) return;
+
         int monW = _engine.ActiveMonitor?.Width ?? 1920;
         int monH = _engine.ActiveMonitor?.Height ?? 1080;
 
@@ -388,58 +660,44 @@ public partial class MainWindow : Window
         int r = (int)RightSlider.Value;
         int b = (int)BottomSlider.Value;
 
-        int safeW = Math.Max(100, monW - l - r);
-        int safeH = Math.Max(100, monH - t - b);
+        double outerW = PreviewOuterBorder.Width;
+        double outerH = PreviewOuterBorder.Height;
 
+        double scaleX = outerW / monW;
+        double scaleY = outerH / monH;
+
+        double marginL = Math.Max(2, l * scaleX);
+        double marginT = Math.Max(2, t * scaleY);
+        double marginR = Math.Max(2, r * scaleX);
+        double marginB = Math.Max(2, b * scaleY);
+
+        PreviewInnerBox.Margin = new Thickness(marginL, marginT, marginR, marginB);
+
+        int safeW = monW - l - r;
+        int safeH = monH - t - b;
         PreviewResolutionText.Text = $"{safeW} x {safeH}\n(Safe Area)";
 
-        // Badges
-        PreviewLeftBadge.Text = $"{l}px ({(l * 100.0 / monW):F1}%)";
-        PreviewRightBadge.Text = $"{r}px ({(r * 100.0 / monW):F1}%)";
-        PreviewTopBadge.Text = $"{t}px ({(t * 100.0 / monH):F1}%)";
-        PreviewBottomBadge.Text = $"{b}px ({(b * 100.0 / monH):F1}%)";
+        PreviewLeftBadge.Text = $"{l} px";
+        PreviewRightBadge.Text = $"{r} px";
+        PreviewTopBadge.Text = $"{t} px";
+        PreviewBottomBadge.Text = $"{b} px";
 
-        // Map monitor dimensions to preview box (360 x 220)
-        double scaleX = 360.0 / monW;
-        double scaleY = 220.0 / monH;
-
-        double previewMarginL = Math.Max(2, l * scaleX);
-        double previewMarginT = Math.Max(2, t * scaleY);
-        double previewMarginR = Math.Max(2, r * scaleX);
-        double previewMarginB = Math.Max(2, b * scaleY);
-
-        PreviewInnerBox.Margin = new Thickness(previewMarginL, previewMarginT, previewMarginR, previewMarginB);
-
-        // Update live calibration window if open
-        _engine.UpdateCalibrationBounds(l, t, r, b);
+        if (_engine.IsApplied)
+        {
+            _engine.UpdateCalibrationBounds(l, t, r, b);
+        }
     }
 
     #endregion
 
-    #region Presets & Actions
+    #region Presets and Actions
 
-    private void PresetReset_Click(object sender, RoutedEventArgs e)
-    {
-        _isUpdating = true;
-        try
-        {
-            SetLeftPixels(0);
-            SetTopPixels(0);
-            SetRightPixels(0);
-            SetBottomPixels(0);
-        }
-        finally
-        {
-            _isUpdating = false;
-            UpdateDiagramPreview();
-        }
-    }
+    private void PresetReset_Click(object sender, RoutedEventArgs e) => ApplyUniformPercentage(0.0);
+    private void PresetMild_Click(object sender, RoutedEventArgs e) => ApplyUniformPercentage(2.5);
+    private void PresetStandard_Click(object sender, RoutedEventArgs e) => ApplyUniformPercentage(5.0);
+    private void PresetAggressive_Click(object sender, RoutedEventArgs e) => ApplyUniformPercentage(7.5);
 
-    private void PresetMild_Click(object sender, RoutedEventArgs e) => ApplyPresetPercentage(2.5);
-    private void PresetStandard_Click(object sender, RoutedEventArgs e) => ApplyPresetPercentage(5.0);
-    private void PresetAggressive_Click(object sender, RoutedEventArgs e) => ApplyPresetPercentage(7.5);
-
-    private void ApplyPresetPercentage(double pct)
+    private void ApplyUniformPercentage(double pct)
     {
         int monW = _engine.ActiveMonitor?.Width ?? 1920;
         int monH = _engine.ActiveMonitor?.Height ?? 1080;
@@ -485,10 +743,7 @@ public partial class MainWindow : Window
         StatusText.Text = $"Active: {l}px L, {t}px T, {r}px R, {b}px B";
         StatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(110, 231, 183));
 
-        if (_trayIcon != null)
-        {
-            _trayIcon.Text = $"OverscanFix: Active ({l}px / {t}px)";
-        }
+        UpdateTrayStatusText(isActive: true);
     }
 
     private void ResetButton_Click(object sender, RoutedEventArgs e)
@@ -505,10 +760,7 @@ public partial class MainWindow : Window
         StatusText.Text = "Status: Inactive (Full Screen)";
         StatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(203, 213, 225));
 
-        if (_trayIcon != null)
-        {
-            _trayIcon.Text = "OverscanFix: Inactive";
-        }
+        UpdateTrayStatusText(isActive: false);
     }
 
     private void ToggleOverscan()
@@ -545,13 +797,19 @@ public partial class MainWindow : Window
     {
         bool enable = StartWithWindowsCheck.IsChecked == true;
         _settings.StartWithWindows = enable;
-        _engine.SetStartupRun(enable);
+        StartupManager.ConfigureStartup(enable, _settings.UseScheduledTaskStartup);
         _settings.Save();
     }
 
     private void MinimizeToTrayCheck_Changed(object sender, RoutedEventArgs e)
     {
         _settings.MinimizeToTrayOnClose = MinimizeToTrayCheck.IsChecked == true;
+        _settings.Save();
+    }
+
+    private void CheckUpdatesCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        _settings.CheckForUpdatesOnStartup = CheckUpdatesCheck.IsChecked == true;
         _settings.Save();
     }
 
