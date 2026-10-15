@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="OverscanFix - Display Overscan &amp; Safe Area Manager"
-        Height="820" Width="980"
-        MinHeight="740" MinWidth="900"
+        Height="840" Width="1020"
+        MinHeight="760" MinWidth="920"
         WindowStartupLocation="CenterScreen"
         Background="#0F172A"
         Foreground="#F8FAFC">
@@ -75,10 +75,10 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="OverscanFix" FontSize="20" FontWeight="Bold" Foreground="#F8FAFC" />
                                 <Border Background="#0284C7" CornerRadius="4" Padding="6,1" Margin="8,2,0,2" VerticalAlignment="Center">
-                                    <TextBlock x:Name="VersionBadgeText" Text="v1.5" FontSize="11" FontWeight="Bold" Foreground="White" />
+                                    <TextBlock x:Name="VersionBadgeText" Text="v2.0 PRO" FontSize="11" FontWeight="Bold" Foreground="White" />
                                 </Border>
                             </StackPanel>
-                            <TextBlock Text="Custom Screen Boundary, Multi-Monitor &amp; Safe Area Manager" FontSize="12" Foreground="#94A3B8" />
+                            <TextBlock Text="Hardware EDID-Aware Screen Boundary, OLED Shield &amp; Multi-Display Manager" FontSize="12" Foreground="#94A3B8" />
                         </StackPanel>
                     </StackPanel>
 
@@ -108,7 +108,7 @@
             </Border>
         </StackPanel>
 
-        <!-- 2. Monitor, Profile & Mode Selection -->
+        <!-- 2. Monitor, Profile & Pro Tools Selection -->
         <Border Grid.Row="1" Background="#1E293B" CornerRadius="8" Padding="14,10" Margin="0,0,0,14" BorderBrush="#334155" BorderThickness="1">
             <Grid>
                 <Grid.RowDefinitions>
@@ -116,13 +116,13 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- Row 1: Target Display & Saved Profiles -->
+                <!-- Row 1: Target Display & Saved Profiles & Pro Tool Buttons -->
                 <Grid Grid.Row="0" Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="280" />
                         <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="200" />
+                        <ColumnDefinition Width="180" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
@@ -132,15 +132,21 @@
                     <TextBlock Grid.Column="2" Text="Profile:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="14,0,8,0" Foreground="#E2E8F0" />
                     <ComboBox Grid.Column="3" x:Name="ProfileSelector" VerticalAlignment="Center" SelectionChanged="ProfileSelector_SelectionChanged" Background="#0F172A" Foreground="#0F172A" Padding="6,4" />
 
-                    <Button Grid.Column="4" Content="💾 Save Profile" Click="SaveCustomProfileButton_Click" Background="#334155" Foreground="White" Padding="8,4" HorizontalAlignment="Left" Margin="10,0,0,0" BorderThickness="0" Cursor="Hand" ToolTip="Save current settings under a custom profile name" />
+                    <!-- Action toolbar -->
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="💾 Save" Click="SaveCustomProfileButton_Click" Background="#334155" Foreground="White" Padding="8,4" Margin="3,0" BorderThickness="0" Cursor="Hand" ToolTip="Save current settings under a custom profile name" />
+                        <Button Content="🎯 App Rules" Click="AppRulesButton_Click" Background="#0284C7" Foreground="White" Padding="8,4" Margin="3,0" BorderThickness="0" Cursor="Hand" ToolTip="Configure auto-trigger rules for specific games or apps" />
+                        <Button Content="🛡️ OLED Shield" Click="OledSettingsButton_Click" Background="#059669" Foreground="White" Padding="8,4" Margin="3,0" BorderThickness="0" Cursor="Hand" ToolTip="Configure OLED anti-burn-in orbital pixel shifting" />
+                        <Button Content="🎨 Mask Style" Click="MaskSettingsButton_Click" Background="#6366F1" Foreground="White" Padding="8,4" Margin="3,0" BorderThickness="0" Cursor="Hand" ToolTip="Customize black border mask color and opacity" />
+                    </StackPanel>
                 </Grid>
 
                 <!-- Row 2: Toggles -->
                 <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <CheckBox x:Name="UniformLockCheck" Content="🔒 Link All Sides (Uniform)" Margin="0,0,18,0" Checked="UniformLockCheck_Changed" Unchecked="UniformLockCheck_Changed" />
                     <CheckBox x:Name="WorkAreaCheck" Content="📐 Adjust Work Area" IsChecked="True" Margin="0,0,18,0" ToolTip="Constrains maximized windows (browsers, apps) within the safe boundaries." />
-                    <CheckBox x:Name="BlackBordersCheck" Content="⬛ Blackout Mask" Margin="0,0,18,0" ToolTip="Renders solid matte-black click-through bars outside the safe viewing zone." />
-                    <CheckBox x:Name="AutoSaveMonitorCheck" Content="📌 Remember settings per monitor" IsChecked="True" Margin="0,0,0,0" ToolTip="Automatically remembers and restores margin settings individually for each detected monitor." />
+                    <CheckBox x:Name="BlackBordersCheck" Content="⬛ Outside Border Mask" Margin="0,0,18,0" ToolTip="Renders solid matte click-through bars outside the safe viewing zone." />
+                    <CheckBox x:Name="AutoSaveMonitorCheck" Content="📌 Lock settings per EDID display" IsChecked="True" Margin="0,0,0,0" ToolTip="Automatically remembers and restores margin settings individually for each detected hardware display." />
                 </StackPanel>
             </Grid>
         </Border>
@@ -237,7 +243,7 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Text="LIVE SCREEN DIAGRAM" FontWeight="Bold" FontSize="12" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,0,0,8" />
+                    <TextBlock Grid.Row="0" Text="LIVE SCREEN DIAGRAM &amp; MASK PREVIEW" FontWeight="Bold" FontSize="12" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,0,0,8" />
 
                     <!-- Visual Screen Frame -->
                     <Border Grid.Row="1" x:Name="PreviewOuterBorder" Background="#090D16" BorderBrush="#475569" BorderThickness="2" CornerRadius="6" VerticalAlignment="Center" HorizontalAlignment="Center" Height="220" Width="360">
@@ -259,7 +265,7 @@
 
                     <StackPanel Grid.Row="2" HorizontalAlignment="Center" Margin="0,8,0,0">
                         <TextBlock x:Name="PreviewMonitorDetails" Text="Display: 1920 x 1080 (16:9)" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" />
-                        <TextBlock Text="Green box = designated safe area visible on your screen." FontSize="10" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                        <TextBlock Text="Green box = safe area. Dark frame = active mask boundaries." FontSize="10" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
                     </StackPanel>
                 </Grid>
             </Border>
@@ -280,6 +286,8 @@
                     <Button Content="Mild TV (2.5%)" Click="PresetMild_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
                     <Button Content="Standard TV (5%)" Click="PresetStandard_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
                     <Button Content="Aggressive (7.5%)" Click="PresetAggressive_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                    <Button Content="Retro 4:3" Click="PresetRetro_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                    <Button Content="Cinema 2.39:1" Click="PresetCinema_Click" Padding="10,4" Margin="3,0" Background="#334155" Foreground="White" BorderThickness="0" Cursor="Hand" />
                 </StackPanel>
 
                 <!-- Primary Action Buttons -->
@@ -309,7 +317,7 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <CheckBox x:Name="StartWithWindowsCheck" Content="Start with Windows" Checked="StartWithWindowsCheck_Changed" Unchecked="StartWithWindowsCheck_Changed" Margin="0,0,18,0" />
                 <CheckBox x:Name="MinimizeToTrayCheck" Content="Minimize to System Tray" IsChecked="True" Checked="MinimizeToTrayCheck_Changed" Unchecked="MinimizeToTrayCheck_Changed" Margin="0,0,18,0" />
-                <CheckBox x:Name="CheckUpdatesCheck" Content="Check for updates on launch" IsChecked="True" Checked="CheckUpdatesCheck_Changed" Unchecked="CheckUpdatesCheck_Changed" Margin="0,0,18,0" />
+                <CheckBox x:Name="CheckUpdatesCheck" Content="Auto update check" IsChecked="True" Checked="CheckUpdatesCheck_Changed" Unchecked="CheckUpdatesCheck_Changed" Margin="0,0,18,0" />
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">

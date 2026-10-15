@@ -1,0 +1,55 @@
+<Window x:Class="OverscanFix.AppRulesDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Auto-Trigger Application Rules"
+        Height="460" Width="680"
+        WindowStartupLocation="CenterOwner"
+        Background="#0F172A"
+        Foreground="#F8FAFC">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="🎯 Application-Specific Auto Triggers" FontSize="16" FontWeight="Bold" Foreground="#38BDF8" />
+            <TextBlock Text="Automatically apply selected profiles when a specific application or game comes to the foreground." FontSize="12" Foreground="#94A3B8" />
+        </StackPanel>
+
+        <!-- Rules DataGrid -->
+        <DataGrid Grid.Row="1" x:Name="RulesGrid" AutoGenerateColumns="False" CanUserAddRows="False" Background="#1E293B" RowBackground="#1E293B" AlternatingRowBackground="#243248" Foreground="#F8FAFC" BorderBrush="#334155" HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Process Name (e.g. RetroArch, vlc)" Binding="{Binding ProcessName}" Width="*" />
+                <DataGridTextColumn Header="Target Profile" Binding="{Binding ProfileName}" Width="160" />
+                <DataGridCheckBoxColumn Header="Auto-Apply" Binding="{Binding AutoApply}" Width="90" />
+                <DataGridCheckBoxColumn Header="Revert on Exit" Binding="{Binding RevertOnExit}" Width="100" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Add Rule Bar -->
+        <Border Grid.Row="2" Background="#1E293B" CornerRadius="6" Padding="10,8" Margin="0,10,0,10" BorderBrush="#334155" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBox x:Name="NewProcText" Margin="0,0,8,0" VerticalContentAlignment="Center" />
+                <ComboBox Grid.Column="1" x:Name="NewProfileCombo" Margin="0,0,8,0" Background="#0F172A" Foreground="#0F172A" VerticalContentAlignment="Center" />
+                <Button Grid.Column="2" Content="➕ Add Rule" Click="AddRule_Click" Background="#10B981" Foreground="White" FontWeight="Bold" Padding="12,6" Margin="0,0,8,0" BorderThickness="0" Cursor="Hand" />
+                <Button Grid.Column="3" Content="🗑️ Remove" Click="RemoveRule_Click" Background="#EF4444" Foreground="White" FontWeight="SemiBold" Padding="10,6" BorderThickness="0" Cursor="Hand" />
+            </Grid>
+        </Border>
+
+        <!-- Actions -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Save &amp; Close" Click="SaveClose_Click" Background="#3B82F6" Foreground="White" FontWeight="Bold" Padding="16,8" BorderThickness="0" Cursor="Hand" />
+        </StackPanel>
+    </Grid>
+</Window>

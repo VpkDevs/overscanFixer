@@ -12,6 +12,7 @@ public class MonitorItem
 {
     public string DeviceName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public string FriendlyModel { get; set; } = string.Empty;
     public int X { get; set; }
     public int Y { get; set; }
     public int Width { get; set; }
@@ -36,12 +37,17 @@ public class OverscanEngine : IDisposable
     {
         var list = new List<MonitorItem>();
         int index = 1;
-        foreach (var s in Screen.AllScreens)
+        var screens = Screen.AllScreens;
+
+        foreach (var s in screens)
         {
+            string friendly = EdidDetector.ResolveFriendlyNameForDevice(s.DeviceName, index);
+
             var item = new MonitorItem
             {
                 DeviceName = s.DeviceName,
-                DisplayName = $"Monitor {index++}: {s.DeviceName} ({s.Bounds.Width}x{s.Bounds.Height}){(s.Primary ? " [Primary]" : "")}",
+                FriendlyModel = friendly,
+                DisplayName = $"{friendly} ({s.Bounds.Width}x{s.Bounds.Height}){(s.Primary ? " [Primary]" : "")}",
                 X = s.Bounds.X,
                 Y = s.Bounds.Y,
                 Width = s.Bounds.Width,
@@ -56,6 +62,7 @@ public class OverscanEngine : IDisposable
             }
 
             list.Add(item);
+            index++;
         }
         return list;
     }
@@ -65,7 +72,7 @@ public class OverscanEngine : IDisposable
         ActiveMonitor = monitor;
     }
 
-    public void ApplyOverscan(int leftPx, int topPx, int rightPx, int bottomPx, bool applyWorkArea, bool showBorders)
+    public void ApplyOverscan(int leftPx, int topPx, int rightPx, int bottomPx, bool applyWorkArea, bool showBorders, string maskColorHex = "#000000", double maskOpacity = 1.0)
     {
         if (ActiveMonitor == null) return;
 
@@ -94,7 +101,7 @@ public class OverscanEngine : IDisposable
                 _borderWindow = new BorderMaskWindow(ActiveMonitor.X, ActiveMonitor.Y, ActiveMonitor.Width, ActiveMonitor.Height);
                 _borderWindow.Show();
             }
-            _borderWindow.UpdateBorders(leftPx, topPx, rightPx, bottomPx);
+            _borderWindow.UpdateBorders(leftPx, topPx, rightPx, bottomPx, maskColorHex, maskOpacity);
         }
         else
         {
@@ -109,9 +116,9 @@ public class OverscanEngine : IDisposable
     /// During Windows logon, DWM and shell startup can clobber or reset the work area multiple times.
     /// This method enforces the target work area across 3 retry intervals (immediate, +1.5s, +4s).
     /// </summary>
-    public async Task ApplyOverscanWithResilienceAsync(int leftPx, int topPx, int rightPx, int bottomPx, bool applyWorkArea, bool showBorders)
+    public async Task ApplyOverscanWithResilienceAsync(int leftPx, int topPx, int rightPx, int bottomPx, bool applyWorkArea, bool showBorders, string maskColorHex = "#000000", double maskOpacity = 1.0)
     {
-        ApplyOverscan(leftPx, topPx, rightPx, bottomPx, applyWorkArea, showBorders);
+        ApplyOverscan(leftPx, topPx, rightPx, bottomPx, applyWorkArea, showBorders, maskColorHex, maskOpacity);
 
         if (applyWorkArea && ActiveMonitor != null)
         {

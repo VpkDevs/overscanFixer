@@ -6,10 +6,19 @@ using System.Text.Json.Serialization;
 
 namespace OverscanFix;
 
+public class AppTriggerRule
+{
+    public string ProcessName { get; set; } = string.Empty;
+    public string ProfileName { get; set; } = string.Empty;
+    public bool AutoApply { get; set; } = true;
+    public bool RevertOnExit { get; set; } = true;
+}
+
 public class OverscanProfile
 {
     public string Name { get; set; } = "Default";
     public string TargetMonitorDevice { get; set; } = string.Empty;
+    public string MonitorModel { get; set; } = string.Empty;
 
     // Insets in Pixels
     public int LeftPixels { get; set; } = 40;
@@ -25,12 +34,17 @@ public class OverscanProfile
     public bool EnableBlackBorders { get; set; } = false;
     public bool AutoFitWindows { get; set; } = true;
 
+    // Mask styling
+    public string MaskColorHex { get; set; } = "#000000";
+    public double MaskOpacity { get; set; } = 1.0;
+
     public OverscanProfile Clone(string newName)
     {
         return new OverscanProfile
         {
             Name = newName,
             TargetMonitorDevice = TargetMonitorDevice,
+            MonitorModel = MonitorModel,
             LeftPixels = LeftPixels,
             TopPixels = TopPixels,
             RightPixels = RightPixels,
@@ -38,7 +52,9 @@ public class OverscanProfile
             UniformLinked = UniformLinked,
             EnableWorkAreaAdjustment = EnableWorkAreaAdjustment,
             EnableBlackBorders = EnableBlackBorders,
-            AutoFitWindows = AutoFitWindows
+            AutoFitWindows = AutoFitWindows,
+            MaskColorHex = MaskColorHex,
+            MaskOpacity = MaskOpacity
         };
     }
 }
@@ -54,11 +70,21 @@ public class AppSettings
     // List of saved named profiles
     public List<OverscanProfile> SavedProfiles { get; set; } = new();
 
+    // App Trigger Rules
+    public List<AppTriggerRule> TriggerRules { get; set; } = new();
+
+    // OLED Anti-Burn-In Pixel Shifter settings
+    public bool EnableOledPixelOrbit { get; set; } = false;
+    public int OledOrbitIntervalMinutes { get; set; } = 10;
+    public int OledOrbitMaxShiftPx { get; set; } = 4;
+
+    // General app settings
     public bool StartWithWindows { get; set; } = false;
     public bool UseScheduledTaskStartup { get; set; } = true;
     public bool MinimizeToTrayOnClose { get; set; } = true;
     public bool StartMinimized { get; set; } = false;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
+    public bool AutoDetectDisplaysOnChange { get; set; } = true;
 
     private static readonly string SettingsFolder = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OverscanFix");
@@ -97,6 +123,15 @@ public class AppSettings
             SavedProfiles.Add(new OverscanProfile { Name = "Mild TV (2.5%)", LeftPixels = 24, RightPixels = 24, TopPixels = 14, BottomPixels = 14 });
             SavedProfiles.Add(new OverscanProfile { Name = "Standard TV (5%)", LeftPixels = 48, RightPixels = 48, TopPixels = 27, BottomPixels = 27 });
             SavedProfiles.Add(new OverscanProfile { Name = "Aggressive (7.5%)", LeftPixels = 72, RightPixels = 72, TopPixels = 40, BottomPixels = 40 });
+            SavedProfiles.Add(new OverscanProfile { Name = "Retro 4:3 Pillarbox", LeftPixels = 240, RightPixels = 240, TopPixels = 0, BottomPixels = 0, EnableBlackBorders = true });
+            SavedProfiles.Add(new OverscanProfile { Name = "Cinema 2.39:1 Letterbox", LeftPixels = 0, RightPixels = 0, TopPixels = 140, BottomPixels = 140, EnableBlackBorders = true });
+        }
+
+        if (TriggerRules.Count == 0)
+        {
+            TriggerRules.Add(new AppTriggerRule { ProcessName = "RetroArch", ProfileName = "Retro 4:3 Pillarbox", AutoApply = true, RevertOnExit = true });
+            TriggerRules.Add(new AppTriggerRule { ProcessName = "vlc", ProfileName = "Standard TV (5%)", AutoApply = true, RevertOnExit = true });
+            TriggerRules.Add(new AppTriggerRule { ProcessName = "Steam", ProfileName = "Standard TV (5%)", AutoApply = false, RevertOnExit = false });
         }
     }
 

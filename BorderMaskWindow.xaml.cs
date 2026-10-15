@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace OverscanFix;
 
@@ -28,8 +29,26 @@ public partial class BorderMaskWindow : Window
         };
     }
 
-    public void UpdateBorders(int left, int top, int right, int bottom)
+    public void UpdateBorders(int left, int top, int right, int bottom, string colorHex = "#000000", double opacity = 1.0)
     {
+        Brush brush;
+        try
+        {
+            var color = (Color)ColorConverter.ConvertFromString(colorHex);
+            brush = new SolidColorBrush(color);
+        }
+        catch
+        {
+            brush = Brushes.Black;
+        }
+
+        Opacity = Math.Clamp(opacity, 0.0, 1.0);
+
+        LeftBar.Fill = brush;
+        TopBar.Fill = brush;
+        RightBar.Fill = brush;
+        BottomBar.Fill = brush;
+
         // Left bar
         LeftBar.Width = Math.Max(0, left);
         LeftBar.Height = _screenHeight;

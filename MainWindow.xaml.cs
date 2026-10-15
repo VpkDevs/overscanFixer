@@ -26,6 +26,9 @@ public partial class MainWindow : Window
     private HwndSource? _hwndSource;
     private string _latestReleaseUrl = "https://github.com/VpkDevs/overscanFixer/releases";
 
+    private AppWatcher? _appWatcher;
+    private OledOrbitManager? _oledManager;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -37,12 +40,36 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        VersionBadgeText.Text = $"v{UpdateChecker.GetCurrentVersionString()}";
+        VersionBadgeText.Text = $"v{UpdateChecker.GetCurrentVersionString()} PRO";
 
         InitializeSystemTray();
         RegisterGlobalHotkey();
         LoadMonitors();
         LoadProfilesDropdown();
+
+        // Initialize background managers
+        _oledManager = new OledOrbitManager(_engine, _settings);
+        _oledManager.Start();
+
+        _appWatcher = new AppWatcher(_settings, (profileName, isRevert) =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var prof = _settings.SavedProfiles.FirstOrDefault(p => p.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
+                if (prof != null)
+                {
+                    _settings.ActiveProfileName = prof.Name;
+                    LoadProfileIntoUI(prof);
+                    ApplyOverscan();
+                    if (_trayIcon != null)
+                    {
+                        string msg = isRevert ? $"Reverted to '{profileName}'" : $"Auto-applied '{profileName}' for active window";
+                        _trayIcon.ShowBalloonTip(1000, "OverscanFix Auto-Trigger", msg, WinForms.ToolTipIcon.Info);
+                    }
+                }
+            });
+        });
+        _appWatcher.Start();
 
         // Check if started minimized (boot or CLI flag)
         if (_settings.StartMinimized || Environment.GetCommandLineArgs().Contains("--minimized"))
@@ -50,14 +77,15 @@ public partial class MainWindow : Window
             Hide();
             if (_settings.CurrentProfile.EnableWorkAreaAdjustment || _settings.CurrentProfile.EnableBlackBorders)
             {
-                // Use resilient startup retry logic on boot to fight Windows logon work area resets
                 await _engine.ApplyOverscanWithResilienceAsync(
                     _settings.CurrentProfile.LeftPixels,
                     _settings.CurrentProfile.TopPixels,
                     _settings.CurrentProfile.RightPixels,
                     _settings.CurrentProfile.BottomPixels,
                     _settings.CurrentProfile.EnableWorkAreaAdjustment,
-                    _settings.CurrentProfile.EnableBlackBorders);
+                    _settings.CurrentProfile.EnableBlackBorders,
+                    _settings.CurrentProfile.MaskColorHex,
+                    _settings.CurrentProfile.MaskOpacity);
                 UpdateTrayStatusText(isActive: true);
             }
         }
@@ -67,6 +95,36 @@ public partial class MainWindow : Window
         {
             _ = CheckForUpdatesInBackgroundAsync();
         }
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        var helper = new WindowInteropHelper(this);
+        _hwndSource = HwndSource.FromHwnd(helper.Handle);
+        _hwndSource?.AddHook(WndProcHook);
+    }
+
+    private IntPtr WndProcHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == NativeMethods.WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
+        {
+            ToggleOverscan();
+            handled = true;
+        }
+        else if (msg == NativeMethods.WM_DISPLAYCHANGE)
+        {
+            Logger.Info("WM_DISPLAYCHANGE received; re-querying monitors.");
+            Dispatcher.Invoke(() =>
+            {
+                LoadMonitors();
+                if (_engine.IsApplied)
+                {
+                    ApplyOverscan();
+                }
+            });
+        }
+        return IntPtr.Zero;
     }
 
     #region Auto-Updater
@@ -127,7 +185,6 @@ public partial class MainWindow : Window
         };
 
         RebuildTrayContextMenu();
-
         _trayIcon.DoubleClick += (s, e) => ShowAndRestore();
     }
 
@@ -202,7 +259,6 @@ public partial class MainWindow : Window
             ? $"OverscanFix: [{profName}] L{l} T{t} R{r} B{b}"
             : "OverscanFix: Inactive (Full Screen)";
 
-        // Tooltip max length is 63 chars in WinForms NotifyIcon
         if (tooltip.Length > 63) tooltip = tooltip.Substring(0, 60) + "...";
         _trayIcon.Text = tooltip;
 
@@ -223,22 +279,9 @@ public partial class MainWindow : Window
     private void RegisterGlobalHotkey()
     {
         var helper = new WindowInteropHelper(this);
-        _hwndSource = HwndSource.FromHwnd(helper.Handle);
-        _hwndSource?.AddHook(HwndHook);
-
         // Register Ctrl + Alt + O
         NativeMethods.RegisterHotKey(helper.Handle, HOTKEY_ID,
             NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT, 0x4F); // 0x4F = 'O'
-    }
-
-    private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (msg == NativeMethods.WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
-        {
-            ToggleOverscan();
-            handled = true;
-        }
-        return IntPtr.Zero;
     }
 
     #endregion
@@ -283,7 +326,7 @@ public partial class MainWindow : Window
             TopSlider.Maximum = Math.Max(80, monitor.Height / 3);
             BottomSlider.Maximum = Math.Max(80, monitor.Height / 3);
 
-            PreviewMonitorDetails.Text = $"Display: {monitor.Width} x {monitor.Height} ({(double)monitor.Width / monitor.Height:F2}:1)";
+            PreviewMonitorDetails.Text = $"Display: {monitor.DisplayName}";
 
             // Load per-monitor profile if stored
             var monitorProf = _settings.GetProfileForMonitor(monitor.DeviceName);
@@ -317,18 +360,20 @@ public partial class MainWindow : Window
         string currentMonitor = _engine.ActiveMonitor?.DeviceName ?? "Display";
         string defaultName = $"Custom {_settings.SavedProfiles.Count + 1}";
 
-        // Simple prompt or save
         var newProfile = new OverscanProfile
         {
             Name = defaultName,
             TargetMonitorDevice = currentMonitor,
+            MonitorModel = _engine.ActiveMonitor?.FriendlyModel ?? "",
             LeftPixels = (int)LeftSlider.Value,
             TopPixels = (int)TopSlider.Value,
             RightPixels = (int)RightSlider.Value,
             BottomPixels = (int)BottomSlider.Value,
             UniformLinked = UniformLockCheck.IsChecked == true,
             EnableWorkAreaAdjustment = WorkAreaCheck.IsChecked == true,
-            EnableBlackBorders = BlackBordersCheck.IsChecked == true
+            EnableBlackBorders = BlackBordersCheck.IsChecked == true,
+            MaskColorHex = _settings.CurrentProfile.MaskColorHex,
+            MaskOpacity = _settings.CurrentProfile.MaskOpacity
         };
 
         _settings.SavedProfiles.Add(newProfile);
@@ -339,6 +384,34 @@ public partial class MainWindow : Window
         RebuildTrayContextMenu();
 
         MessageBox.Show($"Profile '{newProfile.Name}' saved successfully!", "OverscanFix", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void AppRulesButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new AppRulesDialog(_settings) { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private void OledSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OledSettingsDialog(_settings) { Owner = this };
+        if (dlg.ShowDialog() == true)
+        {
+            _oledManager?.Start();
+        }
+    }
+
+    private void MaskSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new MaskSettingsDialog(_settings.CurrentProfile) { Owner = this };
+        if (dlg.ShowDialog() == true)
+        {
+            _settings.Save();
+            if (_engine.IsApplied && BlackBordersCheck.IsChecked == true)
+            {
+                ApplyOverscan();
+            }
+        }
     }
 
     private void LoadProfileIntoUI(OverscanProfile p)
@@ -380,13 +453,13 @@ public partial class MainWindow : Window
         if (_engine.ActiveMonitor != null)
         {
             p.TargetMonitorDevice = _engine.ActiveMonitor.DeviceName;
+            p.MonitorModel = _engine.ActiveMonitor.FriendlyModel;
             if (AutoSaveMonitorCheck.IsChecked == true)
             {
                 _settings.SetProfileForMonitor(_engine.ActiveMonitor.DeviceName, p.Clone(p.Name));
             }
         }
 
-        // Update corresponding profile in saved list
         var existing = _settings.SavedProfiles.FirstOrDefault(s => s.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
@@ -397,6 +470,8 @@ public partial class MainWindow : Window
             existing.UniformLinked = p.UniformLinked;
             existing.EnableWorkAreaAdjustment = p.EnableWorkAreaAdjustment;
             existing.EnableBlackBorders = p.EnableBlackBorders;
+            existing.MaskColorHex = p.MaskColorHex;
+            existing.MaskOpacity = p.MaskOpacity;
         }
 
         _settings.Save();
@@ -697,6 +772,18 @@ public partial class MainWindow : Window
     private void PresetStandard_Click(object sender, RoutedEventArgs e) => ApplyUniformPercentage(5.0);
     private void PresetAggressive_Click(object sender, RoutedEventArgs e) => ApplyUniformPercentage(7.5);
 
+    private void PresetRetro_Click(object sender, RoutedEventArgs e)
+    {
+        var retro = _settings.SavedProfiles.FirstOrDefault(p => p.Name.Contains("Retro", StringComparison.OrdinalIgnoreCase));
+        if (retro != null) ApplyNamedProfile(retro);
+    }
+
+    private void PresetCinema_Click(object sender, RoutedEventArgs e)
+    {
+        var cinema = _settings.SavedProfiles.FirstOrDefault(p => p.Name.Contains("Cinema", StringComparison.OrdinalIgnoreCase));
+        if (cinema != null) ApplyNamedProfile(cinema);
+    }
+
     private void ApplyUniformPercentage(double pct)
     {
         int monW = _engine.ActiveMonitor?.Width ?? 1920;
@@ -735,7 +822,9 @@ public partial class MainWindow : Window
         bool workArea = WorkAreaCheck.IsChecked == true;
         bool blackBorders = BlackBordersCheck.IsChecked == true;
 
-        _engine.ApplyOverscan(l, t, r, b, workArea, blackBorders);
+        _engine.ApplyOverscan(l, t, r, b, workArea, blackBorders,
+            _settings.CurrentProfile.MaskColorHex,
+            _settings.CurrentProfile.MaskOpacity);
         SaveUIToProfile();
 
         StatusBadge.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(6, 78, 59));
@@ -825,6 +914,8 @@ public partial class MainWindow : Window
         }
         else
         {
+            _appWatcher?.Dispose();
+            _oledManager?.Dispose();
             _trayIcon?.Dispose();
             _engine.Dispose();
         }

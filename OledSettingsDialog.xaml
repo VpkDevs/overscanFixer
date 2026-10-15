@@ -1,0 +1,52 @@
+<Window x:Class="OverscanFix.OledSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OLED Anti-Burn-In Protection"
+        Height="380" Width="540"
+        WindowStartupLocation="CenterOwner"
+        Background="#0F172A"
+        Foreground="#F8FAFC">
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="🛡️ OLED Anti-Burn-In Pixel Orbit" FontSize="16" FontWeight="Bold" Foreground="#10B981" />
+            <TextBlock Text="Imperceptibly shifts safe-margin boundaries over time in a smooth 8-point orbital loop to prevent static HUD and taskbar retention on OLED TVs and monitors." FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,4,0,0" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="#1E293B" CornerRadius="8" Padding="14" BorderBrush="#334155" BorderThickness="1">
+            <StackPanel>
+                <CheckBox x:Name="EnableOrbitCheck" Content="Enable OLED Pixel Orbit" FontSize="14" FontWeight="Bold" Foreground="#38BDF8" Margin="0,0,0,14" />
+
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Orbit Interval (minutes):" VerticalAlignment="Center" Foreground="#E2E8F0" />
+                    <TextBox Grid.Column="1" x:Name="OrbitIntervalText" Width="60" TextAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
+
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Maximum Shift (pixels):" VerticalAlignment="Center" Foreground="#E2E8F0" />
+                    <TextBox Grid.Column="1" x:Name="OrbitMaxShiftText" Width="60" TextAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
+
+                <TextBlock Text="💡 Recommended: 5-10 minute interval with 2-4 pixel shift. This is completely invisible during active gaming or media playback but effectively mitigates sub-pixel burn-in." FontSize="11" Foreground="#64748B" TextWrapping="Wrap" Margin="0,8,0,0" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Save &amp; Apply" Click="SaveClose_Click" Background="#10B981" Foreground="White" FontWeight="Bold" Padding="16,8" BorderThickness="0" Cursor="Hand" />
+        </StackPanel>
+    </Grid>
+</Window>
